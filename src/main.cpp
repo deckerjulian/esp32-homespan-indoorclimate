@@ -17,16 +17,111 @@ void checkIaqSensorStatus(void);
 void loadState(void);
 void updateState(void);
 
-// Create an object of the class Bsec
 Bsec iaqSensor;
 uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = {0};
 uint16_t stateUpdateCounter = 0;
 
 String output;
 
-// HOMESPAN Definitions
+// DEV_TempSensor
 // =====================================================================================
-SpanCharacteristic *temp;
+struct DEV_TempSensor : Service::TemperatureSensor
+{
+
+  SpanCharacteristic *temp;
+
+  DEV_TempSensor() : Service::TemperatureSensor()
+  {
+
+    temp = new Characteristic::CurrentTemperature(0.0);
+    temp->setRange(-50, 100);
+    Serial.print("Configuring Temperature Sensor");
+    Serial.print("\n");
+  }
+
+  void loop()
+  {
+
+    if (temp->timeVal() > 5000)
+    { // check time elapsed since last update and proceed only if greater than 5 seconds
+      unsigned long time_trigger = millis();
+      if (iaqSensor.run())
+      { // If new data is available
+        output = String(time_trigger);
+        output += ", " + String(iaqSensor.rawTemperature);
+        output += ", " + String(iaqSensor.pressure);
+        output += ", " + String(iaqSensor.rawHumidity);
+        output += ", " + String(iaqSensor.gasResistance);
+        output += ", " + String(iaqSensor.iaq);
+        output += ", " + String(iaqSensor.iaqAccuracy);
+        output += ", " + String(iaqSensor.temperature);
+        output += ", " + String(iaqSensor.humidity);
+        Serial.println(output);
+        updateState();
+        temp->setVal(iaqSensor.temperature);
+      }
+      else
+      {
+        checkIaqSensorStatus();
+      }
+      LOG1("Temperature Update");
+      LOG1("\n");
+    }
+
+  } // loop
+};
+
+// DEV_TempSensor
+// =====================================================================================
+struct DEV_AirQualitySensor : Service::AirQualitySensor
+{
+
+  SpanCharacteristic *airQuality;
+  SpanCharacteristic *voc;
+
+  DEV_AirQualitySensor() : Service::AirQualitySensor()
+  {
+
+    voc = new Characteristic::VOCDensity(0);
+    airQuality = new Characteristic::AirQuality(1);
+
+    Serial.print("Configuring Air Quality Sensor");
+    Serial.print("\n");
+
+  } // end constructor
+
+  void loop()
+  {
+
+    if (airQuality->timeVal() > 7500)
+    {
+      unsigned long time_trigger = millis();
+      if (iaqSensor.run())
+      { // If new data is available
+        output = String(time_trigger);
+        output += ", " + String(iaqSensor.rawTemperature);
+        output += ", " + String(iaqSensor.pressure);
+        output += ", " + String(iaqSensor.rawHumidity);
+        output += ", " + String(iaqSensor.gasResistance);
+        output += ", " + String(iaqSensor.iaq);
+        output += ", " + String(iaqSensor.iaqAccuracy);
+        output += ", " + String(iaqSensor.temperature);
+        output += ", " + String(iaqSensor.humidity);
+        Serial.println(output);
+
+        voc->setVal(iaqSensor.gasResistance);
+
+        float air_quality;
+        air_quality = 1 + (5 - 1) * ((iaqSensor.iaq - 0) / (500 - 0));
+
+        airQuality->setVal(air_quality);
+      }
+
+      LOG1("AirQuality Update");
+      LOG1("\n");
+    } // loop
+  }
+};
 
 // SETUP
 // =====================================================================================
@@ -53,7 +148,7 @@ void setup()
       BSEC_OUTPUT_RAW_TEMPERATURE,
       BSEC_OUTPUT_RAW_PRESSURE,
       BSEC_OUTPUT_RAW_HUMIDITY,
-      BSEC_OUTPUT_RAW_GAS,
+      BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
       BSEC_OUTPUT_IAQ,
       BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
       BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
@@ -70,13 +165,14 @@ void setup()
   // =====================================================================================
 
   homeSpan.begin(Category::Sensors, "Raumklima");
-  homeSpan.setPairingCode("46637726");
-  //homeSpan.setWifiCredentials("SSID","PASSWORD");
+  // homeSpan.setPairingCode("46637726");
+  // homeSpan.setLogLevel(2);
+  // homeSpan.setWifiCredentials("SSID","PASSWORD");
 
   new SpanAccessory();
 
   new Service::AccessoryInformation();
-  new Characteristic::Name("Raumklima Sensor");
+  new Characteristic::Name("Temperatur");
   new Characteristic::Manufacturer("atlane");
   new Characteristic::SerialNumber("321-ATL");
   new Characteristic::Model("BME680 Sensor");
@@ -85,42 +181,27 @@ void setup()
   new Service::HAPProtocolInformation();
   new Characteristic::Version("1.1.0");
 
-  new Service::TemperatureSensor();
-  temp = new Characteristic::CurrentTemperature(0.0);
-  temp->setRange(-50, 60);
+  new DEV_TempSensor();
+
+  new SpanAccessory();
+
+  new Service::AccessoryInformation();
+  new Characteristic::Name("Raumklima");
+  new Characteristic::Manufacturer("atlane");
+  new Characteristic::SerialNumber("546-ATL");
+  new Characteristic::Model("BME680 Sensor");
+  new Characteristic::FirmwareRevision("1.0");
+  new Characteristic::Identify();
+  new Service::HAPProtocolInformation();
+  new Characteristic::Version("1.1.0");
+
+  new DEV_AirQualitySensor();
 }
 
 void loop()
 {
-
-  // The code in setup above implements the Accessory Attribute Database, but performs no operations.  HomeSpan itself must be
-  // continuously polled to look for requests from Controllers, such as the Home App on your iPhone.  The poll() method below is all that
-  // is needed to perform this continuously in each iteration of loop()
-
-  unsigned long time_trigger = millis();
-  if (iaqSensor.run())
-  { // If new data is available
-    output = String(time_trigger);
-    output += ", " + String(iaqSensor.rawTemperature);
-    output += ", " + String(iaqSensor.pressure);
-    output += ", " + String(iaqSensor.rawHumidity);
-    output += ", " + String(iaqSensor.gasResistance);
-    output += ", " + String(iaqSensor.iaq);
-    output += ", " + String(iaqSensor.iaqAccuracy);
-    output += ", " + String(iaqSensor.temperature);
-    output += ", " + String(iaqSensor.humidity);
-    Serial.println(output);
-    updateState();
-    temp->setVal(iaqSensor.temperature);
-  }
-  else
-  {
-    checkIaqSensorStatus();
-  }
-
   homeSpan.poll();
-
-} 
+}
 
 // BME680 Helper Functions
 // =====================================================================================
